@@ -252,7 +252,7 @@ pub fn main(init: std.process.Init) !void {
                 try terminal.deactivate();
                 var child = try std.process.spawn(io, .{
                     .argv = &.{
-                        "nvim",
+                        "vim",
                         "-d",
                         path_lft,
                         path_rgt,
@@ -268,10 +268,10 @@ pub fn main(init: std.process.Init) !void {
                 'o' => { try diff.openAll(); },
                 'c' => { try diff.closeAll(); i = 0; s = 0; },
                 'r' => { try diff.refresh(); i = 0; s = 0; },
-                'x' => {}, // TODO: delete right
-                'z' => {}, // TODO: delete left
-                ']' => {}, // TODO: copy to right
-                '[' => {}, // TODO: copy to left
+                'x' => { try diff.deleteRight(nodes.items[i]); try diff.refresh(); i = 0; s = 0; },
+                'z' => { try diff.deleteLeft(nodes.items[i]); try diff.refresh(); i = 0; s = 0; },
+                ']' => { try diff.copyToRight(nodes.items[i]); try diff.refresh(); i = 0; s = 0; },
+                '[' => { try diff.copyToLeft(nodes.items[i]); try diff.refresh(); i = 0; s = 0; },
                 'a' => { filter_s = true; filter_d = true; filter_o = true; try diff.filter(filter_s, filter_d, filter_o); i = 0; s = 0; },
                 's' => { filter_s = !filter_s; try diff.filter(filter_s, filter_d, filter_o); i = 0; s = 0; },
                 'd' => { filter_d = !filter_d; try diff.filter(filter_s, filter_d, filter_o); i = 0; s = 0; },

@@ -407,5 +407,29 @@ pub const Diff = struct {
         self.o = o;
         _ = try self.list();
     }
+    pub fn deleteLeft(self: *Diff, node: *Node) !void {
+        try self.lft.deleteTree(self.io, node.path);
+    }
+    pub fn deleteRight(self: *Diff, node: *Node) !void {
+        try self.rgt.deleteTree(self.io, node.path);
+    }
+    pub fn copyToRight(self: *Diff, node: *Node) !void {
+        if (node.type == .directory) {
+            for (node.children.items) |item| {
+                try self.copyToRight(item);
+            }
+            return;
+        }
+        try self.lft.copyFile(node.path, self.rgt, node.path, self.io, .{ .make_path = true });
+    }
+    pub fn copyToLeft(self: *Diff, node: *Node) !void {
+        if (node.type == .directory) {
+            for (node.children.items) |item| {
+                try self.copyToLeft(item);
+            }
+            return;
+        }
+        try self.rgt.copyFile(node.path, self.lft, node.path, self.io, .{ .make_path = true });
+    }
 };
 
