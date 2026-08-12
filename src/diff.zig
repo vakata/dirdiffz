@@ -329,6 +329,9 @@ pub const Diff = struct {
     }
     fn up(self: *Diff, parent: *Node) void {
         var calculated: Status = .same;
+        if (parent.status == .left_only or parent.status == .right_only) {
+            return;
+        }
         var lo: bool = true;
         var ro: bool = true;
         for (parent.children.items) |item| {
@@ -356,9 +359,6 @@ pub const Diff = struct {
         }
     }
     fn down(self: *Diff, node: *Node) Status {
-        node.has_s = false;
-        node.has_d = false;
-        node.has_o = false;
         if (
             node.type == .file or
             node.type == .mismatch or
@@ -372,6 +372,9 @@ pub const Diff = struct {
             return .same;
         }
         // only dirs with files from here down
+        node.has_s = false;
+        node.has_d = false;
+        node.has_o = false;
         var calculated: Status = .same;
         var lo: bool = true;
         var ro: bool = true;

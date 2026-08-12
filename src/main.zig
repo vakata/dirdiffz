@@ -1,5 +1,5 @@
 const std = @import("std");
-const Diff = @import("dirdiffz").Diff;
+const Diff = @import("diff.zig").Diff;
 const Terminal = @import("terminal.zig").Terminal;
 
 pub fn main(init: std.process.Init) !void {
@@ -45,6 +45,10 @@ pub fn main(init: std.process.Init) !void {
     var filter_o: bool = true;
 
     var help: bool = false;
+    var confirm_copy_lft: bool = false;
+    var confirm_copy_rgt: bool = false;
+    var confirm_delete_lft: bool = false;
+    var confirm_delete_rgt: bool = false;
 
     var i: usize = 0;
     var s: usize = 0;
@@ -218,6 +222,11 @@ pub fn main(init: std.process.Init) !void {
             row += 1;
             try terminal.move(row, col);
             try terminal.write("│");
+            try terminal.writeFixed(" z / x - delete left / right", wid - 2);
+            try terminal.write("│\n");
+            row += 1;
+            try terminal.move(row, col);
+            try terminal.write("│");
             try terminal.writeFixed(" Enter - open in diff editor", wid - 2);
             try terminal.write("│\n");
             row += 1;
@@ -236,6 +245,40 @@ pub fn main(init: std.process.Init) !void {
             try terminal.writeRepeat("─", wid - 2);
             try terminal.write("┘\n");
         }
+        if (confirm_copy_lft or confirm_copy_rgt or confirm_delete_lft or confirm_delete_rgt) {
+            var row: u8 = 4;
+            const wid = 40;
+            const col = w / 2 - wid / 2;
+            try terminal.move(row, col);
+            try terminal.write("┌");
+            try terminal.writeRepeat("─", wid - 2);
+            try terminal.write("┐\n");
+            row += 1;
+            try terminal.move(row, col);
+            try terminal.write("│");
+            try terminal.writeFixed(" ", wid - 2);
+            try terminal.write("│\n");
+            row += 1;
+            try terminal.move(row, col);
+            try terminal.write("│");
+            try terminal.writeFixed("             Are you sure?", wid - 2);
+            try terminal.write("│\n");
+            row += 1;
+            try terminal.move(row, col);
+            try terminal.write("│");
+            try terminal.writeFixed("         [Y]es          [N]o", wid - 2);
+            try terminal.write("│\n");
+            row += 1;
+            try terminal.move(row, col);
+            try terminal.write("│");
+            try terminal.writeFixed(" ", wid - 2);
+            try terminal.write("│\n");
+            row += 1;
+            try terminal.move(row, col);
+            try terminal.write("└");
+            try terminal.writeRepeat("─", wid - 2);
+            try terminal.write("┘\n");
+        }
 
         try terminal.flush();
 
@@ -247,20 +290,26 @@ pub fn main(init: std.process.Init) !void {
             .right => { try diff.open(nodes.items[i]); },
             .space => { try diff.toggle(nodes.items[i]); },
             .enter => {
-                const path_lft = try std.fs.path.join(gpa, &.{ args[1], nodes.items[i].path });
-                const path_rgt = try std.fs.path.join(gpa, &.{ args[2], nodes.items[i].path });
-                try terminal.deactivate();
-                var child = try std.process.spawn(io, .{
-                    .argv = &.{
-                        "vim",
-                        "-d",
-                        path_lft,
-                        path_rgt,
-                    },
-                });
-                _ = try child.wait(io);
-                try terminal.activate();
-                diff.diff(nodes.items[i], true);
+                if (
+                    nodes.items[i].status != .left_only and
+                    nodes.items[i].status != .right_only and
+                    nodes.items[i].type == .file
+                ) {
+                    const path_lft = try std.fs.path.join(gpa, &.{ args[1], nodes.items[i].path });
+                    const path_rgt = try std.fs.path.join(gpa, &.{ args[2], nodes.items[i].path });
+                    try terminal.deactivate();
+                    var child = try std.process.spawn(io, .{
+                        .argv = &.{
+                            "vim",
+                            "-d",
+                            path_lft,
+                            path_rgt,
+                        },
+                    });
+                    _ = try child.wait(io);
+                    try terminal.activate();
+                    diff.diff(nodes.items[i], true);
+                }
             },
             .escape => break,
             .char => |c| switch (c) {
@@ -268,10 +317,10 @@ pub fn main(init: std.process.Init) !void {
                 'o' => { try diff.openAll(); },
                 'c' => { try diff.closeAll(); i = 0; s = 0; },
                 'r' => { try diff.refresh(); i = 0; s = 0; },
-                'x' => { try diff.deleteRight(nodes.items[i]); try diff.refresh(); i = 0; s = 0; },
-                'z' => { try diff.deleteLeft(nodes.items[i]); try diff.refresh(); i = 0; s = 0; },
-                ']' => { try diff.copyToRight(nodes.items[i]); try diff.refresh(); i = 0; s = 0; },
-                '[' => { try diff.copyToLeft(nodes.items[i]); try diff.refresh(); i = 0; s = 0; },
+                'x' => { if (nodes.items[i].status != .left_only) confirm_delete_rgt = true; },
+                'z' => { if (nodes.items[i].status != .right_only) confirm_delete_lft = true; },
+                ']' => { if (nodes.items[i].status != .right_only) confirm_copy_rgt = true; },
+                '[' => { if (nodes.items[i].status != .left_only) confirm_copy_lft = true; },
                 'a' => { filter_s = true; filter_d = true; filter_o = true; try diff.filter(filter_s, filter_d, filter_o); i = 0; s = 0; },
                 's' => { filter_s = !filter_s; try diff.filter(filter_s, filter_d, filter_o); i = 0; s = 0; },
                 'd' => { filter_d = !filter_d; try diff.filter(filter_s, filter_d, filter_o); i = 0; s = 0; },
@@ -280,6 +329,27 @@ pub fn main(init: std.process.Init) !void {
                 'j' => { if (i < nodes.items.len - 1) i+= 1; if (i - s > h - 3 and s < nodes.items.len - h - 1) s += 1; },
                 'h' => { try diff.close(nodes.items[i]); if (s > nodes.items.len - h) s = nodes.items.len - h - 1; },
                 'l' => { try diff.open(nodes.items[i]); },
+                'y' => {
+                    if (confirm_delete_rgt) try diff.deleteRight(nodes.items[i]);
+                    if (confirm_delete_lft) try diff.deleteLeft(nodes.items[i]);
+                    if (confirm_copy_rgt) try diff.copyToRight(nodes.items[i]);
+                    if (confirm_copy_lft) try diff.copyToLeft(nodes.items[i]);
+                    if (confirm_copy_lft or confirm_copy_rgt or confirm_delete_lft or confirm_delete_rgt) {
+                        try diff.refresh();
+                        i = 0;
+                        s = 0;
+                    }
+                    confirm_delete_rgt = false;
+                    confirm_delete_lft = false;
+                    confirm_copy_rgt = false;
+                    confirm_copy_lft = false;
+                },
+                'n' => {
+                    confirm_delete_rgt = false;
+                    confirm_delete_lft = false;
+                    confirm_copy_rgt = false;
+                    confirm_copy_lft = false;
+                },
                 '?' => { help = !help; },
                 else => {},
             },
