@@ -76,6 +76,12 @@ pub const Diff = struct {
         self.allocator.destroy(self);
     }
     pub fn refresh(self: *Diff) !void {
+        for (self.nodes.items) |node| {
+            node.children.deinit(self.allocator);
+            self.allocator.free(node.path);
+            self.allocator.free(node.name);
+            self.allocator.destroy(node);
+        }
         self.nodes.clearRetainingCapacity();
         self.roots.clearRetainingCapacity();
         self.vis.clearRetainingCapacity();
@@ -134,6 +140,11 @@ pub const Diff = struct {
                 }
                 continue;
             }
+            defer {
+                self.allocator.free(node.name);
+                self.allocator.free(node.path);
+                self.allocator.destroy(node);
+            }
             var orig = self.map.get(entry.path) orelse return error.notfound;
             if (orig.type != node.type) {
                 orig.type = .mismatch;
@@ -143,9 +154,6 @@ pub const Diff = struct {
             }
             orig.status = if (orig.type == .directory) .same else .unknown;
             self.diff(orig, false);
-            self.allocator.free(node.name);
-            self.allocator.free(node.path);
-            self.allocator.destroy(node);
         }
         std.mem.sort(*Node, self.nodes.items, {}, struct {
             fn lessThan(_: void, a: *Node, b: *Node) bool {
@@ -253,11 +261,16 @@ pub const Diff = struct {
             return;
         }
         const file_lft: ?std.Io.File = self.lft.openFile(self.io, node.path, .{}) catch null;
-        defer file_lft.?.close(self.io);
+        defer if (file_lft) |f| f.close(self.io);
         const file_rgt: ?std.Io.File = self.rgt.openFile(self.io, node.path, .{}) catch null;
-        defer file_rgt.?.close(self.io);
+        defer if (file_rgt) |f| f.close(self.io);
         defer {
-            if (sync and node.parent != null) self.up(node.parent.?);
+            if (sync) {
+                if (node.parent) |p| self.up(p);
+                for (self.roots.items) |item| {
+                    _ = self.down(item);
+                }
+            }
         }
         if (file_lft == null and file_rgt == null) {
             node.status = .unknown;
@@ -281,6 +294,7 @@ pub const Diff = struct {
         };
         if (stat_lft.size != stat_rgt.size) {
             node.status = .different;
+            return;
         }
         var buf_lft: [128 * 1024]u8 = undefined;
         var buf_rgt: [128 * 1024]u8 = undefined;
@@ -332,14 +346,19 @@ pub const Diff = struct {
                 calculated = .different;
             }
         }
-        if (lo) calculated = .left_only;
-        if (ro) calculated = .right_only;
+        if (lo and parent.children.items.len > 0) calculated = .left_only;
+        if (ro and parent.children.items.len > 0) calculated = .right_only;
         if (parent.status != calculated) {
             parent.status = calculated;
-            if (parent.parent != null) self.up(parent.parent.?);
+            if (parent.parent) |p| {
+                self.up(p);
+            }
         }
     }
     fn down(self: *Diff, node: *Node) Status {
+        node.has_s = false;
+        node.has_d = false;
+        node.has_o = false;
         if (
             node.type == .file or
             node.type == .mismatch or
@@ -356,9 +375,6 @@ pub const Diff = struct {
         var calculated: Status = .same;
         var lo: bool = true;
         var ro: bool = true;
-        node.has_s = false;
-        node.has_d = false;
-        node.has_o = false;
         for (node.children.items) |item| {
             const status = self.down(item);
             if (status != .left_only) {

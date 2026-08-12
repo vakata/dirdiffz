@@ -246,16 +246,32 @@ pub fn main(init: std.process.Init) !void {
             .left => { try diff.close(nodes.items[i]); if (s > nodes.items.len - h) s = nodes.items.len - h - 1; },
             .right => { try diff.open(nodes.items[i]); },
             .space => { try diff.toggle(nodes.items[i]); },
-            .enter => { }, // TODO: vimdiff
+            .enter => {
+                const path_lft = try std.fs.path.join(gpa, &.{ args[1], nodes.items[i].path });
+                const path_rgt = try std.fs.path.join(gpa, &.{ args[2], nodes.items[i].path });
+                try terminal.deactivate();
+                var child = try std.process.spawn(io, .{
+                    .argv = &.{
+                        "nvim",
+                        "-d",
+                        path_lft,
+                        path_rgt,
+                    },
+                });
+                _ = try child.wait(io);
+                try terminal.activate();
+                diff.diff(nodes.items[i], true);
+            },
             .escape => break,
             .char => |c| switch (c) {
                 'q' => break,
                 'o' => { try diff.openAll(); },
                 'c' => { try diff.closeAll(); i = 0; s = 0; },
                 'r' => { try diff.refresh(); i = 0; s = 0; },
-                'x' => {}, // TODO: delete
-                ']' => {}, // TODO: put
-                '[' => {}, // TODO: get
+                'x' => {}, // TODO: delete right
+                'z' => {}, // TODO: delete left
+                ']' => {}, // TODO: copy to right
+                '[' => {}, // TODO: copy to left
                 'a' => { filter_s = true; filter_d = true; filter_o = true; try diff.filter(filter_s, filter_d, filter_o); i = 0; s = 0; },
                 's' => { filter_s = !filter_s; try diff.filter(filter_s, filter_d, filter_o); i = 0; s = 0; },
                 'd' => { filter_d = !filter_d; try diff.filter(filter_s, filter_d, filter_o); i = 0; s = 0; },

@@ -27,7 +27,12 @@ pub const Terminal = struct {
 
     pub fn init(writer: *std.Io.Writer, colors: bool) !Terminal {
         const original = try posix.tcgetattr(posix.STDIN_FILENO);
-        var raw = original;
+        var self: Terminal = .{ .original = original, .writer = writer, .colors = colors };
+        try self.activate();
+        return self;
+    }
+    pub fn activate(self: *Terminal) !void {
+        var raw = self.original;
         // Receive input immediately rather than line-by-line.
         raw.lflag.ICANON = false;
         // Don't echo typed characters.
@@ -40,23 +45,25 @@ pub const Terminal = struct {
             .FLUSH,
             raw,
         );
-        var self: Terminal = .{ .original = original, .writer = writer, .colors = colors };
         // Enter alternate screen and hide cursor.
         try self.write("\x1b[?1049h");
         try self.write("\x1b[?25l");
-        return self;
+        try self.flush();
     }
-
-    pub fn deinit(self: *Terminal) void {
+    pub fn deactivate(self: *Terminal) !void {
         // Reset attributes, show cursor, leave alternate screen.
         self.write("\x1b[0m") catch {};
         self.write("\x1b[?25h") catch {};
         self.write("\x1b[?1049l") catch {};
+        self.flush() catch {};
         posix.tcsetattr(
             posix.STDIN_FILENO,
             .FLUSH,
             self.original,
         ) catch {};
+    }
+    pub fn deinit(self: *Terminal) void {
+        self.deactivate() catch {};
     }
     pub fn write(self: *Terminal, bytes: []const u8) !void {
         try self.writer.writeAll(bytes);
