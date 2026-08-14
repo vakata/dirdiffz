@@ -13,8 +13,8 @@ The goal of this project is to build a TUI that can replace BetterCompare / WinM
  - [X] integrate with vimdiff / neovim -d
  - [X] implement copy-to-left / copy-to-right / delete
  - [X] add confirm dialogs when copying / deleting
- - [ ] preserve state when refreshing
- - [ ] extract separate App struct from main
- - [ ] add optional arguments for --no-color and --ignore
+ - [X] preserve state when refreshing
+ - [X] extract separate App struct from main
+ - [X] add optional arguments for --no-color and --ignore
  - [ ] add windows specific code (low priority for now)
 

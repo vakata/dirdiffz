@@ -5,11 +5,6 @@ pub const Type = enum {
     directory,
     mismatch,
 };
-pub const State = enum {
-    none,
-    opened,
-    closed
-};
 pub const Status = enum {
     unknown,
     same,
@@ -19,16 +14,12 @@ pub const Status = enum {
 };
 pub const Node = struct {
     type: Type,
-    path: []const u8,
-    name: []const u8,
     level: usize,
-    state: State,
     status: Status,
     parent: ?*Node,
     children: std.ArrayList(*Node),
-    has_s: bool,
-    has_d: bool,
-    has_o: bool,
+    path: []const u8,
+    name: []const u8,
 };
 
 pub const Diff = struct {
@@ -39,12 +30,15 @@ pub const Diff = struct {
     map: std.StringHashMap(*Node),
     nodes: std.ArrayList(*Node),
     roots: std.ArrayList(*Node),
-    vis: std.ArrayList(*Node),
-    s: bool,
-    d: bool,
-    o: bool,
+    ignores: []const []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, io: std.Io, lft: std.Io.Dir, rgt: std.Io.Dir) !*Diff {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        lft: std.Io.Dir,
+        rgt: std.Io.Dir,
+        ignores: []const []const u8
+    ) !*Diff {
         const self = try allocator.create(Diff);
         self.* = .{
             .allocator = allocator,
@@ -54,10 +48,7 @@ pub const Diff = struct {
             .map = std.StringHashMap(*Node).init(allocator),
             .nodes = .empty,
             .roots = .empty,
-            .vis = .empty,
-            .s = true,
-            .d = true,
-            .o = true
+            .ignores = ignores
         };
         try self.refresh();
         return self;
@@ -72,7 +63,6 @@ pub const Diff = struct {
         }
         self.nodes.deinit(self.allocator);
         self.roots.deinit(self.allocator);
-        self.vis.deinit(self.allocator);
         self.allocator.destroy(self);
     }
     pub fn refresh(self: *Diff) !void {
@@ -84,59 +74,81 @@ pub const Diff = struct {
         }
         self.nodes.clearRetainingCapacity();
         self.roots.clearRetainingCapacity();
-        self.vis.clearRetainingCapacity();
         self.map.clearRetainingCapacity();
-        var walker_left = try self.lft.walk(self.allocator);
+
+        var walker_left = try self.lft.walkSelectively(self.allocator);
         defer walker_left.deinit();
         while (try walker_left.next(self.io)) |entry| {
             if (entry.kind != .directory and entry.kind != .file) {
                 continue;
             }
+            if (
+                entry.kind == .directory and (
+                    std.mem.eql(u8, entry.basename, ".git") or
+                    std.mem.eql(u8, entry.basename, ".svn") or
+                    std.mem.eql(u8, entry.basename, ".hg")
+                )
+            ) {
+                continue;
+            }
+            if (self.ignored(entry.basename)) {
+                continue;
+            }
             const node = try self.allocator.create(Node);
             node.* = .{
                 .type = if (entry.kind == .directory) .directory else .file,
-                .name = try self.allocator.dupe(u8, entry.basename),
-                .path = try self.allocator.dupe(u8, entry.path),
                 .level = entry.depth(),
-                .state = if (entry.kind == .directory) .closed else .none,
                 .status = .left_only,
                 .parent = null,
                 .children = .empty,
-                .has_s = false,
-                .has_d = false,
-                .has_o = false,
+                .name = try self.allocator.dupe(u8, entry.basename),
+                .path = try self.allocator.dupe(u8, entry.path),
             };
             try self.nodes.append(self.allocator, node);
             try self.map.put(node.path, node);
             if (node.level == 1) {
                 try self.roots.append(self.allocator, node);
             }
+            if (entry.kind == .directory) {
+                try walker_left.enter(self.io, entry);
+            }
         }
-        var walker_right = try self.rgt.walk(self.allocator);
+        var walker_right = try self.rgt.walkSelectively(self.allocator);
         defer walker_right.deinit();
         while (try walker_right.next(self.io)) |entry| {
             if (entry.kind != .directory and entry.kind != .file) {
                 continue;
             }
+            if (
+                entry.kind == .directory and (
+                    std.mem.eql(u8, entry.basename, ".git") or
+                    std.mem.eql(u8, entry.basename, ".svn") or
+                    std.mem.eql(u8, entry.basename, ".hg")
+                )
+            ) {
+                continue;
+            }
+            if (self.ignored(entry.basename)) {
+                continue;
+            }
             const node = try self.allocator.create(Node);
             node.* = .{
                 .type = if (entry.kind == .directory) .directory else .file,
-                .name = try self.allocator.dupe(u8, entry.basename),
-                .path = try self.allocator.dupe(u8, entry.path),
                 .level = entry.depth(),
-                .state = if (entry.kind == .directory) .closed else .none,
                 .status = .right_only,
                 .parent = null,
                 .children = .empty,
-                .has_s = false,
-                .has_d = false,
-                .has_o = false,
+                .name = try self.allocator.dupe(u8, entry.basename),
+                .path = try self.allocator.dupe(u8, entry.path),
             };
             if (!self.map.contains(entry.path)) {
                 try self.nodes.append(self.allocator, node);
                 try self.map.put(node.path, node);
                 if (node.level == 1) {
                     try self.roots.append(self.allocator, node);
+                }
+                if (entry.kind == .directory) {
+                    try walker_right.enter(self.io, entry);
                 }
                 continue;
             }
@@ -149,11 +161,12 @@ pub const Diff = struct {
             if (orig.type != node.type) {
                 orig.type = .mismatch;
                 orig.status = .different;
-                orig.state = .closed;
                 continue;
             }
-            orig.status = if (orig.type == .directory) .same else .unknown;
-            self.diff(orig, false);
+            orig.status = .unknown; //if (orig.type == .directory) .same else .unknown;
+            if (entry.kind == .directory) {
+                try walker_right.enter(self.io, entry);
+            }
         }
         std.mem.sort(*Node, self.nodes.items, {}, struct {
             fn lessThan(_: void, a: *Node, b: *Node) bool {
@@ -172,106 +185,31 @@ pub const Diff = struct {
         for (self.nodes.items) |item| {
             std.mem.sort(*Node, item.children.items, {}, struct {
                 fn lessThan(_: void, a: *Node, b: *Node) bool {
+                    if (a.type != .file and b.type == .file) return true;
+                    if (b.type != .file and a.type == .file) return false;
                     return std.mem.order(u8, a.name, b.name) == .lt;
                 }
             }.lessThan);
         }
         std.mem.sort(*Node, self.roots.items, {}, struct {
             fn lessThan(_: void, a: *Node, b: *Node) bool {
-                return std.mem.order(u8, a.name, b.name) == .lt;
-            }
-        }.lessThan);
-        _ = try self.list();
-    }
-    pub fn list(self: *Diff) !*std.ArrayList(*Node) {
-        self.vis.clearRetainingCapacity();
-        std.mem.sort(*Node, self.roots.items, {}, struct {
-            fn lessThan(_: void, a: *Node, b: *Node) bool {
                 if (a.type != .file and b.type == .file) return true;
                 if (b.type != .file and a.type == .file) return false;
                 return std.mem.order(u8, a.name, b.name) == .lt;
             }
         }.lessThan);
-        for (self.roots.items) |item| {
-            _ = self.down(item);
-        }
-        for (self.roots.items) |item| {
-            try self.process(item);
-        }
-        return &self.vis;
-    }
-    fn process(self: *Diff, node: *Node) !void {
-        const add = (self.s and (node.status == .same or node.has_s)) or
-            (self.d and ((node.type == .file and node.status == .different) or node.type == .mismatch or node.status == .unknown or node.has_d)) or
-            (self.o and (node.status == .left_only or node.status == .right_only or node.has_o));
-        if (!add) return;
-        try self.vis.append(self.allocator, node);
-        if (node.state == .closed) return;
-        std.mem.sort(*Node, node.children.items, {}, struct {
-            fn lessThan(_: void, a: *Node, b: *Node) bool {
-                if (a.type != .file and b.type == .file) return true;
-                if (b.type != .file and a.type == .file) return false;
-                return std.mem.order(u8, a.name, b.name) == .lt;
-            }
-        }.lessThan);
-        for (node.children.items) |item| {
-            try self.process(item);
-        }
-    }
-    pub fn openAll(self: *Diff) !void {
         for (self.nodes.items) |item| {
-            if (item.type == .directory or item.type == .mismatch) {
-                item.state = .opened;
+            if (item.type == .file and item.status == .unknown) {
+                self.diff(item);
             }
         }
-        _ = try self.list();
     }
-    pub fn closeAll(self: *Diff) !void {
-        for (self.nodes.items) |item| {
-            if (item.type == .directory or item.type == .mismatch) {
-                item.state = .closed;
-            }
-        }
-        _ = try self.list();
-    }
-    pub fn open(self: *Diff, node: *Node) !void {
-        if (node.type == .directory or node.type == .mismatch) {
-            node.state = .opened;
-            _ = try self.list();
-        }
-    }
-    pub fn close(self: *Diff, node: *Node) !void {
-        if (node.type == .directory or node.type == .mismatch) {
-            node.state = .closed;
-            _ = try self.list();
-        }
-    }
-    pub fn toggle(self: *Diff, node: *Node) !void {
-        if (node.type == .directory or node.type == .mismatch) {
-            node.state = if (node.state == .closed) .opened else .closed;
-            _ = try self.list();
-        }
-    }
-    pub fn diff(self: *Diff, node: *Node, sync: bool) void {
-        if (node.type == .mismatch) {
-            node.status = .different;
-            return;
-        }
-        if (node.type == .directory) {
-            return;
-        }
+    pub fn diff(self: *Diff, node: *Node) void {
+        if (node.type != .file or node.status == .left_only or node.status == .right_only) return;
         const file_lft: ?std.Io.File = self.lft.openFile(self.io, node.path, .{}) catch null;
         defer if (file_lft) |f| f.close(self.io);
         const file_rgt: ?std.Io.File = self.rgt.openFile(self.io, node.path, .{}) catch null;
         defer if (file_rgt) |f| f.close(self.io);
-        defer {
-            if (sync) {
-                if (node.parent) |p| self.up(p);
-                for (self.roots.items) |item| {
-                    _ = self.down(item);
-                }
-            }
-        }
         if (file_lft == null and file_rgt == null) {
             node.status = .unknown;
             return;
@@ -327,112 +265,72 @@ pub const Diff = struct {
             }
         }
     }
-    fn up(self: *Diff, parent: *Node) void {
-        var calculated: Status = .same;
-        if (parent.status == .left_only or parent.status == .right_only) {
-            return;
-        }
-        var lo: bool = true;
-        var ro: bool = true;
-        for (parent.children.items) |item| {
-            if (item.status == .unknown) {
-                calculated = .different;
-                break;
-            }
-            if (item.status != .left_only) {
-                lo = false;
-            }
-            if (item.status != .right_only) {
-                ro = false;
-            }
-            if (item.status != .same) {
-                calculated = .different;
-            }
-        }
-        if (lo and parent.children.items.len > 0) calculated = .left_only;
-        if (ro and parent.children.items.len > 0) calculated = .right_only;
-        if (parent.status != calculated) {
-            parent.status = calculated;
-            if (parent.parent) |p| {
-                self.up(p);
-            }
-        }
-    }
-    fn down(self: *Diff, node: *Node) Status {
-        if (
-            node.type == .file or
-            node.type == .mismatch or
-            node.status == .left_only or
-            node.status == .right_only
-        ) {
-            return node.status;
-        }
-        if (node.children.items.len == 0) {
-            node.status = .same;
-            return .same;
-        }
-        // only dirs with files from here down
-        node.has_s = false;
-        node.has_d = false;
-        node.has_o = false;
-        var calculated: Status = .same;
-        var lo: bool = true;
-        var ro: bool = true;
-        for (node.children.items) |item| {
-            const status = self.down(item);
-            if (status != .left_only) {
-                lo = false;
-            }
-            if (status != .right_only) {
-                ro = false;
-            }
-            if (status != .same) {
-                calculated = .different;
-            }
-            if (status == .left_only or status == .right_only) {
-                node.has_o = true;
-            }
-            if (status == .same) {
-                node.has_s = true;
-            }
-            if (item.has_d or (item.type == .file and status == .different) or item.type == .mismatch) {
-                node.has_d = true;
-            }
-        }
-        if (lo) calculated = .left_only;
-        if (ro) calculated = .right_only;
-        node.status = calculated;
-        return calculated;
-    }
-    pub fn filter(self: *Diff, s: bool, d: bool, o: bool) !void {
-        self.s = s;
-        self.d = d;
-        self.o = o;
-        _ = try self.list();
-    }
     pub fn deleteLeft(self: *Diff, node: *Node) !void {
         try self.lft.deleteTree(self.io, node.path);
+        try self.refresh();
     }
     pub fn deleteRight(self: *Diff, node: *Node) !void {
         try self.rgt.deleteTree(self.io, node.path);
+        try self.refresh();
     }
     pub fn copyToRight(self: *Diff, node: *Node) !void {
+        try self.copyToRightRecursive(node);
+        try self.refresh();
+    }
+    fn copyToRightRecursive(self: *Diff, node: *Node) !void {
         if (node.type == .directory) {
             for (node.children.items) |item| {
-                try self.copyToRight(item);
+                try self.copyToRightRecursive(item);
             }
             return;
         }
         try self.lft.copyFile(node.path, self.rgt, node.path, self.io, .{ .make_path = true });
     }
     pub fn copyToLeft(self: *Diff, node: *Node) !void {
+        try self.copyToLeftRecursive(node);
+        try self.refresh();
+    }
+    fn copyToLeftRecursive(self: *Diff, node: *Node) !void {
         if (node.type == .directory) {
             for (node.children.items) |item| {
-                try self.copyToLeft(item);
+                try self.copyToLeftRecursive(item);
             }
             return;
         }
         try self.rgt.copyFile(node.path, self.lft, node.path, self.io, .{ .make_path = true });
+    }
+    fn match(pattern: []const u8, name: []const u8) bool {
+        var p: usize = 0;
+        var n: usize = 0;
+        var star: ?usize = null;
+        var retry: usize = 0;
+        while (n < name.len) {
+            if (p < pattern.len and pattern[p] == name[n]) {
+                p += 1;
+                n += 1;
+            } else if (p < pattern.len and pattern[p] == '*') {
+                star = p;
+                p += 1;
+                retry = n;
+            } else if (star) |s| {
+                p = s + 1;
+                retry += 1;
+                n = retry;
+            } else {
+                return false;
+            }
+        }
+        while (p < pattern.len and pattern[p] == '*')
+            p += 1;
+        return p == pattern.len;
+    }
+    fn ignored(self: *Diff, name: []const u8) bool {
+        for (self.ignores) |pattern| {
+            if (match(pattern, name)) {
+                return true;
+            }
+        }
+        return false;
     }
 };
 

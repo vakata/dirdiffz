@@ -171,27 +171,19 @@ pub const Terminal = struct {
             else => .unknown,
         };
     }
-    pub fn highlight(self: *Terminal, set: bool) !void {
-        try self.bold(set);
-        if (self.colors) {
-            //try self.background(set);
-            try self.reverse(set);
-        } else {
-            try self.reverse(set);
-        }
-    }
     pub fn bold(self: *Terminal, set: bool) !void {
         try self.write(if (set) "\x1b[1m" else "\x1b[22m");
     }
     pub fn reverse(self: *Terminal, set: bool) !void {
         try self.write(if (set) "\x1b[7m" else "\x1b[27m");
     }
+    pub fn highlight(self: *Terminal, set: bool) !void {
+        try self.bold(set);
+        try self.reverse(set);
+    }
     pub fn default(self: *Terminal) !void {
         if (!self.colors) return;
         try self.write("\x1b[39m");
-    }
-    pub fn background(self: *Terminal, set: bool) !void {
-        try self.write(if (set) "\x1b[100m" else "\x1b[49m");
     }
     pub fn red(self: *Terminal) !void {
         if (!self.colors) return;
