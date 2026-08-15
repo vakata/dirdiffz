@@ -6,15 +6,27 @@ The goal of this project is to build a TUI that can replace BetterCompare / WinM
 
 ## Installation
 
-Prebuild binaries are available on the releases page. Brew can also be used:
-
+*** macOS or Linux using brew ***
 ```sh
 brew tap vakata/tap
 brew trust --formula vakata/tap/dirdiffz
 brew install dirdiffz
 ```
 
-***Progress:***
+*** Linux manual install *** 
+Using prebuild binaries from the releases page.
+
+```sh
+# x86_64
+curl -L https://github.com/vakata/dirdiffz/releases/latest/download/dirdiffz-linux-x86_64.tar.gz | tar -xz
+sudo install dirdiffz /usr/local/bin/dirdiffz
+
+# arm
+curl -L https://github.com/vakata/dirdiffz/releases/latest/download/dirdiffz-linux-aarch64.tar.gz | tar -xz
+sudo install dirdiffz /usr/local/bin/dirdiffz
+```
+
+## Progress:
  - [x] recursively walk and diff as needed
  - [x] build a two panel TUI that shows the resulting tree
  - [x] add filters for same / different / orphans
