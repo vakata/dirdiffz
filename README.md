@@ -6,14 +6,16 @@ The goal of this project is to build a TUI that can replace BetterCompare / WinM
 
 ## Installation
 
-*** macOS or Linux using brew ***
+### macOS or Linux using brew
+
 ```sh
 brew tap vakata/tap
 brew trust --formula vakata/tap/dirdiffz
 brew install dirdiffz
 ```
 
-*** Linux manual install *** 
+### Linux manual install
+
 Using prebuild binaries from the releases page.
 
 ```sh
