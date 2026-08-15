@@ -98,3 +98,92 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --generate-notes
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+  
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+  
+      - name: Read checksums
+        id: sha
+        shell: bash
+        run: |
+          echo "maca=$(cut -d' ' -f1 dist/dirdiffz-macos-aarch64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+          echo "linuxa=$(cut -d' ' -f1 dist/dirdiffz-linux-aarch64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+          echo "macx=$(cut -d' ' -f1 dist/dirdiffz-macos-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+          echo "linuxx=$(cut -d' ' -f1 dist/dirdiffz-linux-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+  
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v7
+        with:
+          repository: vakata/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+  
+      - name: Update formula
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+          MAC_ARM_SHA: ${{ steps.sha.outputs.maca }}
+          MAC_X86_SHA: ${{ steps.sha.outputs.macx }}
+          LINUX_ARM_SHA: ${{ steps.sha.outputs.linuxa }}
+          LINUX_X86_SHA: ${{ steps.sha.outputs.linuxx }}
+        run: |
+          VERSION="${VERSION}"
+
+          cat > tap/Formula/dirdiffz.rb <<EOF
+          class Dirdiffz < Formula
+            desc "Terminal directory diff tool"
+            homepage "https://github.com/vakata/dirdiffz"
+            version "${VERSION}"
+          
+            on_macos do
+              on_arm do
+                url "https://github.com/vakata/dirdiffz/releases/download/${VERSION}/dirdiffz-macos-aarch64.tar.gz"
+                sha256 "${MAC_ARM_SHA}"
+              end
+          
+              on_intel do
+                url "https://github.com/vakata/dirdiffz/releases/download/${VERSION}/dirdiffz-macos-x86_64.tar.gz"
+                sha256 "${MAC_X86_SHA}"
+              end
+            end
+          
+            on_linux do
+              on_arm do
+                url "https://github.com/vakata/dirdiffz/releases/download/${VERSION}/dirdiffz-linux-aarch64.tar.gz"
+                sha256 "${LINUX_ARM_SHA}"
+              end
+          
+              on_intel do
+                url "https://github.com/vakata/dirdiffz/releases/download/${VERSION}/dirdiffz-linux-x86_64.tar.gz"
+                sha256 "${LINUX_X86_SHA}"
+              end
+            end
+          
+            def install
+              bin.install "dirdiffz"
+            end
+          
+            test do
+              system "#{bin}/dirdiffz", "--help"
+            end
+          end
+          EOF
+
+      - name: Commit formula
+        working-directory: tap
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  
+          git add Formula/dirdiffz.rb
+          git commit -m "dirdiffz ${GITHUB_REF_NAME}"
+          git push
