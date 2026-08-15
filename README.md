@@ -4,6 +4,15 @@ The goal of this project is to build a TUI that can replace BetterCompare / WinM
 
 <img width="3720" height="2210" alt="image" src="https://github.com/user-attachments/assets/da4fbc47-9076-4b7b-be6a-56e38efe329d" />
 
+## Installation
+
+Prebuild binaries are available on the releases page. Brew can also be used:
+
+```sh
+brew tap vakata/tap
+brew trust --formula vakata/tap/dirdiffz
+brew install dirdiffz
+```
 
 ***Progress:***
  - [x] recursively walk and diff as needed
