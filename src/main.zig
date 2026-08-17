@@ -45,13 +45,13 @@ pub fn main(init: std.process.Init) !void {
         try stdout.flush();
         return;
     }
-    const dir_lft = std.Io.Dir.cwd().openDir(io, dirs.items[0], .{}) catch {
+    const dir_lft = std.Io.Dir.cwd().openDir(io, dirs.items[0], .{ .iterate = true }) catch {
         try stdout.print("Invalid left directory: {s}\n", .{ dirs.items[0] });
         try stdout.flush();
         return;
     };
     defer dir_lft.close(io);
-    const dir_rgt = std.Io.Dir.cwd().openDir(io, dirs.items[1], .{}) catch {
+    const dir_rgt = std.Io.Dir.cwd().openDir(io, dirs.items[1], .{ .iterate = true }) catch {
         try stdout.print("Invalid right directory: {s}\n", .{ dirs.items[1] });
         try stdout.flush();
         return;
