@@ -55,13 +55,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-
           archive="${APP_NAME}-${{ matrix.artifact }}"
 
-          mkdir "$archive"
-          cp "zig-out/bin/${APP_NAME}" "$archive/"
-
-          tar -czf "dist/${archive}.tar.gz" "$archive"
+          tar -C zig-out/bin \
+            -czf "dist/${archive}.tar.gz" \
+            "${APP_NAME}"
 
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "dist/${archive}.tar.gz" > "dist/${archive}.tar.gz.sha256"
