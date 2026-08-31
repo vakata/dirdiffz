@@ -257,10 +257,13 @@ pub const App = struct {
     }
     pub fn toggle(self: *App) !void {
         if (self.state.selected) |path| {
-            if (self.state.opened.contains(path)) {
-                self.state.opened.put(path, {}) catch {};
+            if (!self.state.opened.contains(path)) {
+                const key = try self.allocator.dupe(u8, path);
+                self.state.opened.put(key, {}) catch {};
             } else {
-                _ = self.state.opened.remove(path);
+                if (self.state.opened.fetchRemove(path)) |item| {
+                    self.allocator.free(item.key);
+                }
             }
         }
         try self.flatten();
