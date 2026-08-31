@@ -25,7 +25,8 @@ pub const State = struct {
     opened: std.StringHashMap(void),
     scrolled: usize,
     confirm: Confirm,
-    help: bool
+    help: bool,
+    index: usize
 };
 pub const App = struct {
     allocator: std.mem.Allocator,
@@ -53,7 +54,8 @@ pub const App = struct {
                 .opened = std.StringHashMap(void).init(allocator),
                 .confirm = .nothing,
                 .scrolled = 0,
-                .help = false
+                .help = false,
+                .index = 0
             },
         };
         try self.refresh();
@@ -98,6 +100,7 @@ pub const App = struct {
                 self.allocator.free(s);
             }
             self.state.selected = try self.allocator.dupe(u8, self.nodes.items[i].path);
+            self.state.index = i;
         }
     }
     pub fn next(self: *App) !void {
@@ -108,6 +111,7 @@ pub const App = struct {
                 self.allocator.free(s);
             }
             self.state.selected = try self.allocator.dupe(u8, self.nodes.items[i].path);
+            self.state.index = i;
         }
     }
     fn entry(self: *App, path: []const u8) ?*Node {
@@ -185,7 +189,12 @@ pub const App = struct {
             }
         }
         if (self.state.selected == null and self.nodes.items.len > 0) {
-            self.state.selected = try self.allocator.dupe(u8, self.nodes.items[0].path);
+            if (self.state.index >= self.nodes.items.len) {
+                self.state.index = self.nodes.items.len - 1;
+            }
+            self.state.selected = try self.allocator.dupe(u8, self.nodes.items[self.state.index].path);
+        } else {
+            self.state.index = 0;
         }
     }
     fn flattenRecursive(self: *App, node: *Node) !void {

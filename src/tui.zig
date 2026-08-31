@@ -35,8 +35,8 @@ pub const TUI = struct {
                 .right => { try self.app.open(); },
                 .space => { try self.app.toggle(); },
                 .enter => {
-                    try self.terminal.deactivate();
                     if (self.app.diffable()) |s| {
+                        try self.terminal.deactivate();
                         const path_lft = try std.fs.path.join(self.allocator, &.{ self.app.left(), s.path });
                         defer self.allocator.free(path_lft);
                         const path_rgt = try std.fs.path.join(self.allocator, &.{ self.app.right(), s.path });
@@ -44,8 +44,10 @@ pub const TUI = struct {
                         var child = try std.process.spawn(self.io, .{ .argv = &.{ "vimdiff", path_lft, path_rgt, } });
                         _ = try child.wait(self.io);
                         try self.app.reloadFile();
+                        try self.terminal.activate();
+                    } else {
+                        try self.app.toggle();
                     }
-                    try self.terminal.activate();
                 },
                 .escape => break,
                 .char => |c| switch (c) {
@@ -86,15 +88,7 @@ pub const TUI = struct {
         }
     }
     pub fn draw(self: *TUI) !void {
-        var i: usize = 0;
-        if (self.app.selected()) |sel| {
-            for (self.app.nodes.items,0..) |item,c| {
-                if (std.mem.eql(u8, sel.path, item.path)) {
-                    i = c;
-                    break;
-                }
-            }
-        }
+        const i: usize = self.app.index();
         // get size and workable size
         const d = try self.terminal.size();
         const w = d.width;
@@ -164,7 +158,7 @@ pub const TUI = struct {
                 .same => try self.terminal.write(" "),
                 .left_only => try self.terminal.write("←"),
                 .right_only => try self.terminal.write("→"),
-                .unknown => try self.terminal.write("?")
+                .unknown => try self.terminal.write(" ")
             }
             try self.terminal.write("│");
             if (n == i) {
@@ -309,6 +303,34 @@ pub const TUI = struct {
             try self.terminal.writeFixed(" ", wid - 2);
             try self.terminal.write("│\n");
             row += 1;
+            if (self.app.state.confirm == .copy_left) {
+                try self.terminal.move(row, col);
+                try self.terminal.write("│");
+                try self.terminal.writeFixed("              COPY TO LEFT", wid - 2);
+                try self.terminal.write("│\n");
+                row += 1;
+            }
+            if (self.app.state.confirm == .copy_right) {
+                try self.terminal.move(row, col);
+                try self.terminal.write("│");
+                try self.terminal.writeFixed("             COPY TO RIGHT", wid - 2);
+                try self.terminal.write("│\n");
+                row += 1;
+            }
+            if (self.app.state.confirm == .delete_left) {
+                try self.terminal.move(row, col);
+                try self.terminal.write("│");
+                try self.terminal.writeFixed("             DELETE LEFT", wid - 2);
+                try self.terminal.write("│\n");
+                row += 1;
+            }
+            if (self.app.state.confirm == .delete_right) {
+                try self.terminal.move(row, col);
+                try self.terminal.write("│");
+                try self.terminal.writeFixed("              DELETE RIGHT", wid - 2);
+                try self.terminal.write("│\n");
+                row += 1;
+            }
             try self.terminal.move(row, col);
             try self.terminal.write("│");
             try self.terminal.writeFixed("             Are you sure?", wid - 2);

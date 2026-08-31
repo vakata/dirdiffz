@@ -278,6 +278,9 @@ pub const Diff = struct {
         try self.refresh();
     }
     fn copyToRightRecursive(self: *Diff, node: *Node) !void {
+        if (node.status == .right_only or node.type == .mismatch) {
+            return;
+        }
         if (node.type == .directory) {
             for (node.children.items) |item| {
                 try self.copyToRightRecursive(item);
@@ -291,6 +294,9 @@ pub const Diff = struct {
         try self.refresh();
     }
     fn copyToLeftRecursive(self: *Diff, node: *Node) !void {
+        if (node.status == .left_only or node.type == .mismatch) {
+            return;
+        }
         if (node.type == .directory) {
             for (node.children.items) |item| {
                 try self.copyToLeftRecursive(item);
