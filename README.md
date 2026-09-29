@@ -6,6 +6,18 @@ The goal of this project is to build a TUI that can replace BetterCompare / WinM
 
 ## Installation
 
+### Arch Linux (AUR)
+
+After the first AUR release sync, the `dirdiffz` package builds from the tagged source release:
+
+```sh
+git clone https://aur.archlinux.org/dirdiffz.git
+cd dirdiffz
+makepkg -si
+```
+
+The release workflow updates the AUR package after a GitHub release is published. To enable publishing, add the public half of a dedicated SSH key to your AUR account and set its private half as the repository Actions secret `AUR_SSH_PRIVATE_KEY`. The first successful run creates the AUR Git repository; subsequent releases update it.
+
 ### macOS or Linux using brew
 
 ```sh
@@ -40,4 +52,3 @@ sudo install dirdiffz /usr/local/bin/dirdiffz
  - [X] extract separate App struct from main
  - [X] add optional arguments for --no-color and --ignore
  - [ ] add windows specific code (low priority for now)
-

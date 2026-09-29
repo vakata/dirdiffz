@@ -1,0 +1,23 @@
+# Maintainer: Ivan Bozhanov <vakata@users.noreply.github.com>
+
+pkgname=dirdiffz
+pkgver=0.1.5
+pkgrel=1
+pkgdesc='Terminal directory diff tool'
+arch=('x86_64')
+url='https://github.com/vakata/dirdiffz'
+license=('MIT')
+makedepends=('zig>=0.16.0')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz")
+sha256sums=('6af3acb502051a0cfe3abc23805c542f13f35ce2ef2e1a6b661f8591bdf6569b')
+
+build() {
+  cd "$pkgname-$pkgver"
+  zig build -Doptimize=ReleaseSafe
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 zig-out/bin/dirdiffz "$pkgdir/usr/bin/dirdiffz"
+  install -Dm644 LICENSE.md "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
