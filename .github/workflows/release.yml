@@ -185,3 +185,71 @@ jobs:
           git add Formula/dirdiffz.rb
           git commit -m "dirdiffz ${GITHUB_REF_NAME}"
           git push
+
+  aur:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout packaging definition
+        uses: actions/checkout@v7
+
+      - name: Prepare package metadata
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Expected a version tag such as 0.1.5" >&2
+            exit 1
+          }
+          mkdir -p aur
+          cp packaging/aur/PKGBUILD aur/PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=$TAG/" aur/PKGBUILD
+          curl --fail --location --retry 3 --output source.tar.gz \
+            "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+          checksum="$(sha256sum source.tar.gz | cut -d' ' -f1)"
+          sed -i "s/^sha256sums=.*/sha256sums=('$checksum')/" aur/PKGBUILD
+          docker run --rm -v "$PWD/aur:/work:ro" -w /work archlinux:base-devel \
+            bash -c "useradd -m builder && su builder -c 'cd /work && makepkg --printsrcinfo'" \
+            > aur/.SRCINFO
+
+      - name: Configure AUR SSH key
+        shell: bash
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$AUR_SSH_PRIVATE_KEY" ]]; then
+            echo 'Set the AUR_SSH_PRIVATE_KEY repository secret before publishing.' >&2
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<'EOF'
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur
+            IdentitiesOnly yes
+          EOF
+
+      - name: Publish to AUR
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone ssh://aur@aur.archlinux.org/dirdiffz.git aur-repo
+          cp aur/PKGBUILD aur/.SRCINFO aur-repo/
+          cd aur-repo
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo 'AUR package is already up to date.'
+            exit 0
+          fi
+          git commit -m "Update dirdiffz to ${GITHUB_REF_NAME}"
+          git push origin master
